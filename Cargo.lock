@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "ikopdf"
-version = "0.9.9"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "embed-manifest",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "ikopdf_shell"
-version = "0.9.9"
+version = "1.0.0"
 dependencies = [
  "windows",
  "windows-core",
