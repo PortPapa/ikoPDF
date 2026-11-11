@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/converter", "crates/shell-ext"]
+
+[workspace.package]
+# 새 버전을 낼 때 여기만 올리고 scripts\release.ps1 을 실행한다.
+version = "1.0.0"
+edition = "2021"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+# 메뉴 DLL은 탐색기 안에서 돌 수 있으므로, 만일의 오류가 탐색기를 끝내지 않도록
+# abort 대신 unwind 를 쓰고 DLL 쪽에서 오류를 잡는다.
+panic = "unwind"

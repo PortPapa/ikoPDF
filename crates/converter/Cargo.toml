@@ -1,0 +1,50 @@
+[package]
+name = "ikopdf"
+version.workspace = true
+edition.workspace = true
+description = "iko PDF 변환 — 우클릭 메뉴에서 이미지와 PDF를 서로 변환"
+build = "build.rs"
+
+[lib]
+name = "ikopdf"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ikoPDF"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "gif", "tiff", "webp"] }
+lopdf = { version = "0.47", default-features = false }
+miniz_oxide = "0.9"
+pdf-writer = "0.15"
+windows-registry = "0.100.0"
+
+[dependencies.windows]
+version = "0.62"
+features = [
+    "ApplicationModel",
+    "Data_Pdf",
+    "Foundation",
+    "Foundation_Collections",
+    "Graphics_Imaging",
+    "Management_Deployment",
+    "Storage",
+    "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Networking_WinHttp",
+    "Win32_Security_Cryptography",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_WinRT",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+embed-manifest = "1.5"
