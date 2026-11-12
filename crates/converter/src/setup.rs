@@ -8,7 +8,7 @@
 //!    믿도록 공개 인증서를 *현재 사용자*의 "신뢰할 수 있는 사용자" 저장소에 넣는다.
 //! 2. 1이 막히면 **기존 메뉴** ("추가 옵션 표시" 안): 현재 사용자 레지스트리에만 등록한다.
 //!
-//! "메뉴 해제"는 위에서 한 일을 모두 되돌린다(패키지, 인증서, 레지스트리, 자동 실행, 폴더).
+//! "메뉴 해제"는 위에서 한 일을 모두 되돌린다(패키지, 인증서, 레지스트리, 설정, 폴더).
 
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,11 @@ const VERB_KEY: &str = "ikoPDF";
 const EXTENSIONS: [&str; 11] = [
     ".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp", ".pdf",
 ];
+/// 프로그램 설정을 두는 곳 (현재 사용자).
+const SETTINGS_KEY: &str = r"Software\ikoPDF";
+const AUTO_UPDATE_VALUE: &str = "AutoUpdate";
+const LAST_CHECK_VALUE: &str = "LastUpdateCheck";
+// 예전 버전이 쓰던 "시작 프로그램" 항목. 지금은 지우기만 한다.
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "ikoPDF";
 
@@ -411,6 +416,7 @@ pub struct Registration {
 /// 메뉴를 등록한다. `prefer_modern` 이 거짓이면 기존 메뉴로만 등록한다.
 pub fn register_menu(prefer_modern: bool) -> Result<Registration> {
     install_files()?;
+    remove_legacy_autostart();
 
     let modern = if prefer_modern {
         register_package()
@@ -442,7 +448,8 @@ pub fn unregister_menu() -> Result<()> {
     let removed = remove_packages();
     untrust_certificate();
     remove_classic();
-    let _ = set_autostart(false);
+    remove_legacy_autostart();
+    let _ = CURRENT_USER.remove_tree(SETTINGS_KEY);
     notify_shell();
     remove_install_dir();
     removed.context("패키지를 해제하지 못했습니다")
@@ -478,6 +485,7 @@ fn remove_install_dir() {
 pub fn apply_update() -> Result<()> {
     let before = menu_state();
     install_files()?;
+    remove_legacy_autostart();
     match before {
         MenuState::Modern => {
             // 패키지 내용(메뉴가 뜨는 파일 종류 등)이 바뀐 버전이면 다시 등록한다.
@@ -494,24 +502,56 @@ pub fn apply_update() -> Result<()> {
     Ok(())
 }
 
-// ───────────────────────── 자동 실행 ─────────────────────────
+// ───────────────────────── 자동 업데이트 설정 ─────────────────────────
+//
+// 프로그램은 Windows 시작 때 자동으로 실행되지 않는다. 1.1.0 까지는 로그인 때 업데이트를
+// 확인하려고 "시작 프로그램"에 자신을 등록했는데, 백신이 그 동작을 악성 행위로 보고 막았다.
+// 지금은 우클릭 메뉴를 쓸 때 하루에 한 번 확인한다(`update::check_in_background_if_due`).
 
-/// Windows 로그인 때 업데이트를 확인하도록 등록되어 있는지.
-pub fn autostart_enabled() -> bool {
+/// 자동 업데이트를 쓰는지. 따로 끄지 않았으면 켜져 있다.
+pub fn auto_update_enabled() -> bool {
     CURRENT_USER
-        .open(RUN_KEY)
-        .and_then(|key| key.get_string(RUN_VALUE))
-        .is_ok()
+        .open(SETTINGS_KEY)
+        .and_then(|key| key.get_u32(AUTO_UPDATE_VALUE))
+        .map(|value| value != 0)
+        .unwrap_or(true)
 }
 
-pub fn set_autostart(enabled: bool) -> Result<()> {
-    let registry = |e| registry_error("자동 실행 설정을 바꿀 수 없습니다", e);
-    let key = CURRENT_USER.create(RUN_KEY).map_err(registry)?;
-    if enabled {
-        let command = format!("\"{}\" --startup-update", installed_exe().to_string_lossy());
-        key.set_string(RUN_VALUE, command).map_err(registry)
-    } else {
-        let _ = key.remove_value(RUN_VALUE);
-        Ok(())
+pub fn set_auto_update(enabled: bool) -> Result<()> {
+    let registry = |e| registry_error("설정을 저장할 수 없습니다", e);
+    CURRENT_USER
+        .create(SETTINGS_KEY)
+        .map_err(registry)?
+        .set_u32(AUTO_UPDATE_VALUE, enabled as u32)
+        .map_err(registry)
+}
+
+/// 마지막으로 새 버전을 확인한 지 `interval` 이 지났으면 지금 시각을 적어 두고 참을 돌려준다.
+pub fn claim_update_check(interval: std::time::Duration) -> bool {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let Ok(key) = CURRENT_USER.create(SETTINGS_KEY) else {
+        return false;
+    };
+    let last = key.get_u64(LAST_CHECK_VALUE).unwrap_or(0);
+    // 시계가 뒤로 돌아간 경우(now < last)에는 다시 확인한다.
+    if now >= last && now - last < interval.as_secs() {
+        return false;
+    }
+    key.set_u64(LAST_CHECK_VALUE, now).is_ok()
+}
+
+/// 1.1.0 까지의 버전이 "시작 프로그램"에 넣던 항목이 남아 있으면 지운다.
+fn remove_legacy_autostart() {
+    let exists = CURRENT_USER
+        .open(RUN_KEY)
+        .and_then(|key| key.get_string(RUN_VALUE))
+        .is_ok();
+    if exists {
+        if let Ok(key) = CURRENT_USER.create(RUN_KEY) {
+            let _ = key.remove_value(RUN_VALUE);
+        }
     }
 }

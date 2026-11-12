@@ -197,8 +197,30 @@ pub fn download_and_apply() -> Result<()> {
     Ok(())
 }
 
-/// 로그인 때 조용히 실행되는 확인. 새 버전이 있으면 설치하고, 문제가 있으면 아무것도 하지 않는다.
-pub fn startup_check() {
+/// 자동으로 새 버전을 확인하는 간격.
+const CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// 우클릭 메뉴로 작업을 마친 뒤 부른다. 자동 업데이트가 켜져 있고 마지막 확인에서 하루가
+/// 지났으면 창 없는 별도 프로세스(`--background-update`)로 새 버전을 확인한다.
+/// 기다리지 않으므로 지금 하던 일은 바로 끝난다.
+pub fn check_in_background_if_due() {
+    if !setup::running_from_install_dir() || !setup::auto_update_enabled() {
+        return;
+    }
+    if !setup::claim_update_check(CHECK_INTERVAL) {
+        return;
+    }
+    use std::process::Stdio;
+    let _ = std::process::Command::new(setup::installed_exe())
+        .arg("--background-update")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+}
+
+/// 창 없이 하는 확인. 새 버전이 있으면 설치하고, 문제가 있으면 아무것도 하지 않는다.
+pub fn background_check() {
     setup::clean_leftovers();
     let installed = setup::installed_version().unwrap_or_else(|| current_version().to_string());
     if let Ok(latest) = latest_version() {

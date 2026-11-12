@@ -1,6 +1,6 @@
 //! 설정 창 (`ui/settings.html`) — 우클릭 메뉴 등록/해제, 자동 업데이트.
 //!
-//! 화면이 보내는 명령: `ready` `register` `unregister` `autostart{value}` `check` `install`
+//! 화면이 보내는 명령: `ready` `register` `unregister` `autoupdate{value}` `check` `install`
 //! `open{target}` `close`. 결과는 `window.app.state(…)` 와 `window.app.done(명령, 결과)` 로 돌려준다.
 
 use ikopdf::APP_NAME;
@@ -24,7 +24,7 @@ fn state() -> Value {
             MenuState::Classic => "classic",
             MenuState::NotRegistered => "none",
         },
-        "autostart": setup::autostart_enabled(),
+        "autoUpdate": setup::auto_update_enabled(),
     })
 }
 
@@ -55,10 +55,7 @@ fn handle(host: &Host, message: Value) {
         "ready" => host.call("state", &state()),
         "register" => host.spawn(|| {
             let result = match setup::register_menu(true) {
-                Ok(registration) => {
-                    let _ = setup::set_autostart(true);
-                    json!({ "ok": true, "fallback": registration.fallback_reason })
-                }
+                Ok(registration) => json!({ "ok": true, "fallback": registration.fallback_reason }),
                 Err(error) => failure(&error),
             };
             finished("register", result)
@@ -71,15 +68,15 @@ fn handle(host: &Host, message: Value) {
             };
             finished("unregister", result)
         }),
-        "autostart" => {
+        "autoupdate" => {
             let wanted = message["value"].as_bool().unwrap_or(false);
-            let result = match setup::set_autostart(wanted) {
+            let result = match setup::set_auto_update(wanted) {
                 Ok(()) => json!({ "ok": true }),
                 Err(error) => failure(&error),
             };
             host.call("state", &state());
             if result["ok"] == false {
-                host.spawn(move || call_script("done", &[&json!("autostart"), &result]));
+                host.spawn(move || call_script("done", &[&json!("autoupdate"), &result]));
             }
         }
         "check" => host.spawn(|| {

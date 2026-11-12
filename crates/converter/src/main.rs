@@ -12,7 +12,7 @@
 //! 관리용:
 //!   ikoPDF.exe --register [--classic]   우클릭 메뉴 등록 (--classic: 기존 메뉴로만)
 //!   ikoPDF.exe --unregister             우클릭 메뉴 해제
-//!   ikoPDF.exe --startup-update         (로그인 때) 조용히 새 버전 확인·설치
+//!   ikoPDF.exe --background-update      (작업 뒤 하루 한 번) 조용히 새 버전 확인·설치
 //!   ikoPDF.exe --apply-update           (업데이트 과정에서) 자신을 설치 폴더에 반영
 
 #![windows_subsystem = "windows"]
@@ -285,8 +285,9 @@ fn main() {
             }
             0
         }
-        Some("--startup-update") => {
-            update::startup_check();
+        // `--startup-update` 는 1.1.0 까지의 버전이 로그인 때 쓰던 이름이다.
+        Some("--background-update") | Some("--startup-update") => {
+            update::background_check();
             0
         }
         Some("--apply-update") => report(setup::apply_update().map(|()| "updated".to_string())),
@@ -298,14 +299,21 @@ fn main() {
         })),
         Some("--unregister") => report(setup::unregister_menu().map(|()| "unregistered".to_string())),
         Some("--status") => report(Ok(format!(
-            "version {} / menu {:?} / installed {:?} / autostart {}",
+            "version {} / menu {:?} / installed {:?} / auto-update {}",
             update::current_version(),
             setup::menu_state(),
             setup::installed_version(),
-            setup::autostart_enabled()
+            setup::auto_update_enabled()
         ))),
         Some(mode_text) => match parse_convert_args(mode_text, rest) {
-            Ok(args) => convert(args),
+            Ok(args) => {
+                let quiet = args.no_ui;
+                let code = convert(args);
+                if !quiet {
+                    update::check_in_background_if_due();
+                }
+                code
+            }
             Err(message) => {
                 eprintln!("{message}");
                 win::message_box(None, &message, MB_OK | MB_ICONINFORMATION | MB_TOPMOST);

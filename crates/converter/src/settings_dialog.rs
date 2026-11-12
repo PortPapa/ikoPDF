@@ -1,6 +1,6 @@
 //! 설정 창 — 실행 파일을 그냥 실행했을 때(또는 메뉴의 "설정…") 뜬다.
 //!
-//! 우클릭 메뉴 등록/해제, 로그인 때 자동 업데이트 확인, 지금 업데이트 확인.
+//! 우클릭 메뉴 등록/해제, 자동 업데이트 켜고 끄기, 지금 업데이트 확인.
 
 use ikopdf::APP_NAME;
 use windows::core::{w, HSTRING, PCWSTR};
@@ -74,7 +74,7 @@ unsafe fn refresh(window: HWND) {
 
     let registered = state != MenuState::NotRegistered;
     enable(window, ID_AUTO, registered);
-    let checked = if registered && setup::autostart_enabled() {
+    let checked = if registered && setup::auto_update_enabled() {
         BST_CHECKED
     } else {
         BST_UNCHECKED
@@ -86,7 +86,6 @@ unsafe fn on_toggle(window: HWND) {
     if setup::menu_state() == MenuState::NotRegistered {
         match busy(window, || setup::register_menu(true)) {
             Ok(registration) => {
-                let _ = setup::set_autostart(true);
                 refresh(window);
                 let message = match (registration.state, registration.fallback_reason) {
                     (MenuState::Classic, Some(reason)) => format!(
@@ -189,7 +188,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                 ID_TOGGLE => on_toggle(window),
                 ID_AUTO => {
                     let wanted = IsDlgButtonChecked(window, ID_AUTO) == BST_CHECKED.0;
-                    if let Err(error) = setup::set_autostart(wanted) {
+                    if let Err(error) = setup::set_auto_update(wanted) {
                         win::message_box(Some(window), &format!("{error:#}"), MB_OK | MB_ICONERROR);
                     }
                     refresh(window);
@@ -293,7 +292,7 @@ unsafe fn run() {
     control(WC_STATICW, "업데이트", 0, (16, 262, 468, 20), -1);
     control(
         WC_BUTTONW,
-        "Windows 시작 시 자동으로 업데이트 확인",
+        "자동 업데이트 (메뉴를 쓸 때 하루 한 번 확인)",
         tab | BS_AUTOCHECKBOX as u32,
         (16, 284, 468, 24),
         ID_AUTO,

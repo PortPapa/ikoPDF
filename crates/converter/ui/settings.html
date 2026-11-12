@@ -105,8 +105,8 @@
     <div class="rows">
       <label class="row">
         <div class="text">
-          <div class="label">Windows 시작 시 자동으로 확인</div>
-          <div class="hint" id="auto-hint">로그인할 때 창 없이 새 버전을 확인하고 설치합니다.</div>
+          <div class="label">자동 업데이트</div>
+          <div class="hint" id="auto-hint">우클릭 메뉴를 쓸 때 하루에 한 번 새 버전을 확인하고 설치합니다.</div>
         </div>
         <input type="checkbox" class="switch" id="auto" disabled>
       </label>
@@ -166,7 +166,7 @@
   const $ = (id) => document.getElementById(id);
   const send = (message) => window.ipc.postMessage(JSON.stringify(message));
 
-  let state = { version: "", installedVersion: null, menu: "none", autostart: false };
+  let state = { version: "", installedVersion: null, menu: "none", autoUpdate: false };
   let busy = null;          // 진행 중인 작업 이름
   let pendingUpdate = null; // { latest, canInstall }
 
@@ -230,10 +230,10 @@
     else setButton(menuBtn, registered ? "메뉴 해제" : "우클릭 메뉴 등록", false);
 
     const auto = $("auto");
-    auto.checked = registered && state.autostart;
+    auto.checked = registered && state.autoUpdate;
     auto.disabled = !registered || !!busy;
     $("auto-hint").textContent = registered
-      ? "로그인할 때 창 없이 새 버전을 확인하고 설치합니다."
+      ? "우클릭 메뉴를 쓸 때 하루에 한 번 새 버전을 확인하고 설치합니다."
       : "우클릭 메뉴를 등록하면 켤 수 있습니다.";
 
     const shown = state.installedVersion || state.version;
@@ -269,7 +269,7 @@
       send({ cmd: "unregister" });
     }
   };
-  $("auto").onchange = (e) => send({ cmd: "autostart", value: e.target.checked });
+  $("auto").onchange = (e) => send({ cmd: "autoupdate", value: e.target.checked });
   $("update-btn").onclick = () => {
     if (busy) return;
     if (pendingUpdate && !pendingUpdate.canInstall) { send({ cmd: "open", target: "releases" }); return; }
@@ -314,7 +314,7 @@
       } else if (cmd === "install") {
         if (result.ok) { hint("v" + result.latest + " 로 업데이트했습니다.", "ok"); pendingUpdate = null; }
         else hint("업데이트하지 못했습니다: " + result.message, "error");
-      } else if (cmd === "autostart" && !result.ok) {
+      } else if (cmd === "autoupdate" && !result.ok) {
         toast(result.message, true);
       }
       render();
@@ -325,16 +325,16 @@
   if (!window.ipc) {
     const query = new URLSearchParams(location.search); // 예: settings.html?menu=modern&check=1
     const menu = query.get("menu") || "none";
-    const fake = { version: "1.1.0", installedVersion: menu === "none" ? null : "1.1.0", menu, autostart: menu !== "none" };
+    const fake = { version: "1.1.0", installedVersion: menu === "none" ? null : "1.1.0", menu, autoUpdate: true };
     const reply = (fn, ms) => setTimeout(fn, ms);
     if (query.get("check")) setTimeout(() => $("update-btn").click(), 50);
     if (query.get("confirm")) setTimeout(() => $("menu-btn").click(), 50);
     window.ipc = { postMessage(raw) {
       const m = JSON.parse(raw);
       if (m.cmd === "ready") window.app.state({ ...fake });
-      if (m.cmd === "register") reply(() => { fake.menu = location.hash === "#classic" ? "classic" : "modern"; fake.autostart = true; fake.installedVersion = fake.version; window.app.state({ ...fake }); window.app.done("register", { ok: true, fallback: fake.menu === "classic" ? "정책으로 차단됨 (0x80073CFF)" : null }); }, 900);
-      if (m.cmd === "unregister") reply(() => { fake.menu = "none"; fake.autostart = false; fake.installedVersion = null; window.app.state({ ...fake }); window.app.done("unregister", { ok: true }); }, 700);
-      if (m.cmd === "autostart") { fake.autostart = m.value; window.app.state({ ...fake }); }
+      if (m.cmd === "register") reply(() => { fake.menu = location.hash === "#classic" ? "classic" : "modern"; fake.installedVersion = fake.version; window.app.state({ ...fake }); window.app.done("register", { ok: true, fallback: fake.menu === "classic" ? "정책으로 차단됨 (0x80073CFF)" : null }); }, 900);
+      if (m.cmd === "unregister") reply(() => { fake.menu = "none"; fake.autoUpdate = true; fake.installedVersion = null; window.app.state({ ...fake }); window.app.done("unregister", { ok: true }); }, 700);
+      if (m.cmd === "autoupdate") { fake.autoUpdate = m.value; window.app.state({ ...fake }); }
       if (m.cmd === "check") reply(() => window.app.done("check", { ok: true, latest: "1.2.0", newer: true, canInstall: fake.menu !== "none" }), 900);
       if (m.cmd === "install") reply(() => { fake.installedVersion = "1.2.0"; window.app.state({ ...fake }); window.app.done("install", { ok: true, latest: "1.2.0" }); }, 1200);
     } };
