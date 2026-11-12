@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iko PDF 변환 설정</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { overflow-y: auto; }
+  .page { padding: 16px 22px 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+
+  /* 맨 위 터미널 창 */
+  .hero-body { display: flex; align-items: center; gap: 12px; padding: 11px 18px 11px 18px; }
+  .hero-text { flex: 1; min-width: 0; font-family: var(--mono); }
+  .hero h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.35; }
+  .hero p { color: var(--term-dim); font-size: 13px; margin-top: 3px; padding-left: 21px; }
+  .hero p b { color: var(--term-text); font-weight: 400; }
+  #mascot { flex: none; width: 68px; height: 68px; border-radius: 10px; image-rendering: pixelated; }
+
+  .card-head { display: flex; align-items: center; gap: 10px; }
+  .badge {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+    padding: 1px 9px; border-radius: 999px;
+    border: 1.5px solid var(--ink-3); color: var(--ink-3); background: var(--paper);
+  }
+  .badge.ok { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+  .badge.warn { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+
+  .menu-body { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
+  .menu-body p { flex: 1; color: var(--ink-2); font-size: 13.5px; }
+  .note {
+    margin-top: 10px; padding-top: 8px; border-top: 2px dotted var(--line);
+    color: var(--ink-3); font-size: 12px; line-height: 1.5;
+  }
+
+  .rows { margin: 2px 0 -9px; }
+  .row { display: flex; align-items: center; gap: 16px; padding: 9px 0; }
+  .row + .row { border-top: 2px dotted var(--line); }
+  .row .text { flex: 1; min-width: 0; }
+  .row .label { font-weight: 700; }
+  .row .hint { color: var(--ink-2); font-size: 12.5px; margin-top: 1px; }
+  .row .hint.ok { color: var(--ok); }
+  .row .hint.error { color: var(--coral-deep); }
+  .row .hint.new { color: var(--coral-deep); font-weight: 700; }
+
+  .how { display: flex; align-items: flex-start; justify-content: center; gap: 10px; margin-top: 8px; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 104px; font-family: var(--mono); font-size: 12px; font-weight: 700; text-align: center; }
+  .step .circle {
+    width: 42px; height: 42px; border-radius: 50%;
+    border: 2px solid var(--ink); background: var(--paper);
+    display: grid; place-items: center;
+  }
+  .step .circle.me { background: var(--ink); color: var(--coral); font-size: 17px; }
+  .how .arrow { color: var(--coral); font-family: var(--mono); font-weight: 700; margin-top: 13px; }
+  .features {
+    margin-top: 8px; padding-top: 8px; border-top: 2px dotted var(--line);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px;
+  }
+  .feature { font-size: 13px; color: var(--ink-2); }
+
+  footer { display: flex; align-items: center; gap: 12px; padding: 0 2px; }
+  .bubble {
+    position: relative; font-family: var(--mono); font-size: 12px; font-weight: 700;
+    background: var(--paper); border: 2px solid var(--ink); border-radius: 10px; padding: 3px 11px;
+  }
+  .bubble::after {
+    content: ""; position: absolute; left: 18px; bottom: -6px; width: 8px; height: 8px;
+    background: var(--paper); border-right: 2px solid var(--ink); border-bottom: 2px solid var(--ink);
+    transform: rotate(45deg);
+  }
+  footer .links { margin-left: auto; display: flex; gap: 14px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <section class="term hero">
+    <div class="term-bar">
+      <i class="dot on"></i><i class="dot"></i><i class="dot"></i>
+      <span class="title">iko@event_code: ~/pdf</span>
+      <span class="right" id="version">v–</span>
+    </div>
+    <div class="hero-body">
+      <div class="hero-text">
+        <h1><span class="prompt">iko PDF 변환</span><span class="cursor"></span></h1>
+        <p><b>우클릭 한 번</b>으로 바꾸고, 나누고, 합쳐요</p>
+      </div>
+      <img id="mascot" src="iko.png" width="68" height="68" alt="이코" title="이코" draggable="false">
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2 class="prompt">우클릭 메뉴</h2>
+      <span class="badge" id="menu-badge">확인 중</span>
+    </div>
+    <div class="menu-body">
+      <p id="menu-desc">&nbsp;</p>
+      <button class="btn primary large" id="menu-btn" disabled>우클릭 메뉴 등록</button>
+    </div>
+    <p class="note">등록하면 프로그램이 내 계정 폴더로 복사되고, 새 우클릭 메뉴에 표시하기 위한 인증서가 내 Windows 계정에 추가됩니다. 해제하면 모두 지워집니다. 관리자 권한은 쓰지 않습니다.</p>
+  </section>
+
+  <section class="card">
+    <h2 class="prompt">업데이트</h2>
+    <div class="rows">
+      <label class="row">
+        <div class="text">
+          <div class="label">Windows 시작 시 자동으로 확인</div>
+          <div class="hint" id="auto-hint">로그인할 때 창 없이 새 버전을 확인하고 설치합니다.</div>
+        </div>
+        <input type="checkbox" class="switch" id="auto" disabled>
+      </label>
+      <div class="row">
+        <div class="text">
+          <div class="label" id="update-label">현재 버전</div>
+          <div class="hint" id="update-hint">새 버전이 나왔는지 바로 확인합니다.</div>
+        </div>
+        <button class="btn" id="update-btn">지금 확인</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 class="prompt">사용법</h2>
+    <div class="how">
+      <div class="step">
+        <div class="circle"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 2.500h6.500l3.500 3.500v11.500H5z"/><path d="M11.500 2.500V6H15" /><path d="M7.500 10.500h5M7.500 13.500h5" stroke="#e0694b" stroke-linecap="round"/></svg></div>
+        이미지·PDF 선택
+      </div>
+      <span class="arrow">&gt;</span>
+      <div class="step">
+        <div class="circle"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5.500" y="2.500" width="9" height="15" rx="4.500"/><path d="M10 2.500V8h4.500" stroke-linejoin="round"/><path d="M10.900 3.400h1.200a2.400 2.400 0 0 1 2.400 2.400V8h-3.600z" fill="#e0694b" stroke="none"/></svg></div>
+        우클릭
+      </div>
+      <span class="arrow">&gt;</span>
+      <div class="step">
+        <div class="circle me">&gt;_</div>
+        iko PDF 변환
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span class="bubble prompt">일은 줄이고, 돈은 벌자!</span>
+    <div class="links">
+      <button class="link" id="blog">event_code 블로그</button>
+      <button class="link" id="github">GitHub</button>
+    </div>
+  </footer>
+</div>
+
+<div class="scrim" id="scrim">
+  <div class="sheet">
+    <h2 id="sheet-title" class="prompt"></h2>
+    <p id="sheet-body"></p>
+    <div class="actions">
+      <button class="btn" id="sheet-cancel">취소</button>
+      <button class="btn primary" id="sheet-ok">확인</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const send = (message) => window.ipc.postMessage(JSON.stringify(message));
+
+  let state = { version: "", installedVersion: null, menu: "none", autostart: false };
+  let busy = null;          // 진행 중인 작업 이름
+  let pendingUpdate = null; // { latest, canInstall }
+
+  // ── 알림 / 확인 창 ──
+  let toastTimer = 0;
+  function toast(text, isError) {
+    const el = $("toast");
+    el.textContent = text;
+    el.classList.toggle("error", !!isError);
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), isError ? 7000 : 4200);
+  }
+  function confirmSheet(title, body, okLabel, danger) {
+    return new Promise((resolve) => {
+      $("sheet-title").textContent = title;
+      $("sheet-body").textContent = body;
+      const ok = $("sheet-ok");
+      ok.textContent = okLabel;
+      ok.className = "btn " + (danger ? "danger" : "primary");
+      const close = (answer) => { $("scrim").classList.remove("show"); resolve(answer); };
+      ok.onclick = () => close(true);
+      $("sheet-cancel").onclick = () => close(false);
+      $("scrim").onclick = (e) => { if (e.target === $("scrim")) close(false); };
+      $("scrim").classList.add("show");
+      ok.focus();
+    });
+  }
+
+  // ── 화면 그리기 ──
+  function setButton(button, label, spinning) {
+    button.textContent = "";
+    button.classList.toggle("busy", !!spinning);
+    if (spinning) {
+      const s = document.createElement("span");
+      s.className = "spinner";
+      button.append(s);
+    }
+    button.append(label);
+  }
+
+  function render() {
+    $("version").textContent = "v" + state.version;
+    const registered = state.menu !== "none";
+
+    const badge = $("menu-badge");
+    const texts = {
+      modern: ["등록됨", "ok", "이미지나 PDF를 우클릭하면 메뉴 첫 화면에 바로 나옵니다."],
+      classic: ["등록됨 · 추가 옵션 안", "warn", "이 PC에서는 우클릭 → “추가 옵션 표시” 안에 나옵니다."],
+      none: ["등록 안 됨", "", "버튼을 누르면 우클릭 메뉴에 “iko PDF 변환”이 추가됩니다."],
+    }[state.menu];
+    badge.textContent = texts[0];
+    badge.className = "badge " + texts[1];
+    $("menu-desc").textContent = texts[2];
+
+    const menuBtn = $("menu-btn");
+    menuBtn.className = "btn large " + (registered ? "danger" : "primary");
+    menuBtn.disabled = !!busy;
+    if (busy === "register") setButton(menuBtn, "등록하는 중…", true);
+    else if (busy === "unregister") setButton(menuBtn, "해제하는 중…", true);
+    else setButton(menuBtn, registered ? "메뉴 해제" : "우클릭 메뉴 등록", false);
+
+    const auto = $("auto");
+    auto.checked = registered && state.autostart;
+    auto.disabled = !registered || !!busy;
+    $("auto-hint").textContent = registered
+      ? "로그인할 때 창 없이 새 버전을 확인하고 설치합니다."
+      : "우클릭 메뉴를 등록하면 켤 수 있습니다.";
+
+    const shown = state.installedVersion || state.version;
+    $("update-label").textContent = "현재 버전 v" + shown;
+    const updateBtn = $("update-btn");
+    updateBtn.disabled = !!busy;
+    updateBtn.className = "btn" + (pendingUpdate ? " primary" : "");
+    if (busy === "check") setButton(updateBtn, "확인하는 중…", true);
+    else if (busy === "install") setButton(updateBtn, "설치하는 중…", true);
+    else if (pendingUpdate) setButton(updateBtn, pendingUpdate.canInstall ? "업데이트" : "내려받기", false);
+    else setButton(updateBtn, "지금 확인", false);
+  }
+
+  function hint(text, kind) {
+    const el = $("update-hint");
+    el.textContent = text;
+    el.className = "hint " + (kind || "");
+  }
+
+  // ── 동작 ──
+  $("menu-btn").onclick = async () => {
+    if (busy) return;
+    if (state.menu === "none") {
+      busy = "register"; render();
+      send({ cmd: "register" });
+    } else {
+      const yes = await confirmSheet(
+        "우클릭 메뉴를 해제할까요?",
+        "메뉴, 인증서, 자동 업데이트 설정과 설치된 프로그램 파일이 모두 지워집니다.",
+        "해제", true);
+      if (!yes) return;
+      busy = "unregister"; render();
+      send({ cmd: "unregister" });
+    }
+  };
+  $("auto").onchange = (e) => send({ cmd: "autostart", value: e.target.checked });
+  $("update-btn").onclick = () => {
+    if (busy) return;
+    if (pendingUpdate && !pendingUpdate.canInstall) { send({ cmd: "open", target: "releases" }); return; }
+    if (pendingUpdate) { busy = "install"; hint("v" + pendingUpdate.latest + " 을 내려받고 있습니다…"); }
+    else { busy = "check"; hint("GitHub에서 최신 버전을 확인하고 있습니다…"); }
+    render();
+    send({ cmd: pendingUpdate ? "install" : "check" });
+  };
+  $("github").onclick = () => send({ cmd: "open", target: "github" });
+  $("blog").onclick = () => send({ cmd: "open", target: "blog" });
+  document.addEventListener("contextmenu", (e) => e.preventDefault());
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if ($("scrim").classList.contains("show")) $("sheet-cancel").click();
+      else send({ cmd: "close" });
+    }
+  });
+
+  // ── 프로그램이 부르는 함수 ──
+  window.app = {
+    /** 현재 상태를 알려 준다. */
+    state(next) { state = next; render(); },
+    /** 작업이 끝났다. result: { ok, message?, fallback?, latest?, newer?, canInstall?, closing? } */
+    done(cmd, result) {
+      busy = null;
+      if (cmd === "register") {
+        if (!result.ok) toast("등록하지 못했습니다.\n" + result.message, true);
+        else if (result.fallback) toast("새 메뉴에는 올릴 수 없어 “추가 옵션 표시” 안에 등록했습니다.\n(" + result.fallback + ")");
+        else toast("등록했습니다. 이미지나 PDF를 우클릭해 보세요.");
+      } else if (cmd === "unregister") {
+        if (result.ok) toast("우클릭 메뉴를 해제했습니다.");
+        else toast("일부를 해제하지 못했습니다.\n" + result.message, true);
+        pendingUpdate = null;
+        // 설치된 파일로 실행 중이었다면 그 파일이 곧 지워지므로 창을 닫는다.
+        if (result.closing) setTimeout(() => send({ cmd: "close" }), 2600);
+      } else if (cmd === "check") {
+        if (!result.ok) hint("확인하지 못했습니다: " + result.message, "error");
+        else if (result.newer) {
+          pendingUpdate = { latest: result.latest, canInstall: result.canInstall };
+          hint("새 버전 v" + result.latest + " 이 있습니다.", "new");
+        } else hint("최신 버전을 쓰고 있습니다.", "ok");
+      } else if (cmd === "install") {
+        if (result.ok) { hint("v" + result.latest + " 로 업데이트했습니다.", "ok"); pendingUpdate = null; }
+        else hint("업데이트하지 못했습니다: " + result.message, "error");
+      } else if (cmd === "autostart" && !result.ok) {
+        toast(result.message, true);
+      }
+      render();
+    },
+  };
+
+  // 브라우저에서 미리 볼 때 쓰는 가짜 프로그램
+  if (!window.ipc) {
+    const query = new URLSearchParams(location.search); // 예: settings.html?menu=modern&check=1
+    const menu = query.get("menu") || "none";
+    const fake = { version: "1.1.0", installedVersion: menu === "none" ? null : "1.1.0", menu, autostart: menu !== "none" };
+    const reply = (fn, ms) => setTimeout(fn, ms);
+    if (query.get("check")) setTimeout(() => $("update-btn").click(), 50);
+    if (query.get("confirm")) setTimeout(() => $("menu-btn").click(), 50);
+    window.ipc = { postMessage(raw) {
+      const m = JSON.parse(raw);
+      if (m.cmd === "ready") window.app.state({ ...fake });
+      if (m.cmd === "register") reply(() => { fake.menu = location.hash === "#classic" ? "classic" : "modern"; fake.autostart = true; fake.installedVersion = fake.version; window.app.state({ ...fake }); window.app.done("register", { ok: true, fallback: fake.menu === "classic" ? "정책으로 차단됨 (0x80073CFF)" : null }); }, 900);
+      if (m.cmd === "unregister") reply(() => { fake.menu = "none"; fake.autostart = false; fake.installedVersion = null; window.app.state({ ...fake }); window.app.done("unregister", { ok: true }); }, 700);
+      if (m.cmd === "autostart") { fake.autostart = m.value; window.app.state({ ...fake }); }
+      if (m.cmd === "check") reply(() => window.app.done("check", { ok: true, latest: "1.2.0", newer: true, canInstall: fake.menu !== "none" }), 900);
+      if (m.cmd === "install") reply(() => { fake.installedVersion = "1.2.0"; window.app.state({ ...fake }); window.app.done("install", { ok: true, latest: "1.2.0" }); }, 1200);
+    } };
+  }
+
+  render();
+  send({ cmd: "ready" });
+})();
+</script>
+</body>
+</html>

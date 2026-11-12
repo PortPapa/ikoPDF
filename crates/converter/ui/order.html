@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iko PDF 변환 - 합칠 순서</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: flex-end; gap: 16px; padding: 18px 24px 14px 20px; }
+  header h1 { font-family: var(--mono); font-size: 21px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.3; }
+  header p { color: var(--ink-2); font-size: 13px; margin-top: 2px; padding-left: 21px; }
+  header .btn { margin-left: auto; flex: none; }
+
+  /* 목록을 담은 터미널 창 */
+  .list-wrap { flex: 1; min-height: 0; margin: 0 24px 0 20px; display: flex; flex-direction: column; }
+  .list-wrap .term-bar { border-radius: 12px 12px 0 0; flex: none; }
+  .list-box {
+    flex: 1; min-height: 0; display: flex;
+    background: var(--paper); border: 2px solid var(--ink); border-top: 0;
+    border-radius: 0 0 12px 12px; overflow: hidden;
+    box-shadow: 4px 4px 0 var(--coral);
+  }
+  .list-wrap .term-bar { box-shadow: 4px 4px 0 var(--coral); }
+  #list { flex: 1; overflow-y: auto; padding: 4px 6px; position: relative; outline: none; }
+  #list::-webkit-scrollbar { width: 12px; }
+  #list::-webkit-scrollbar-thumb { background: var(--ink); border-radius: 6px; border: 3px solid var(--paper); }
+
+  .item {
+    --h: 54px;
+    height: var(--h); display: flex; align-items: center; gap: 10px;
+    padding: 0 8px 0 4px; border-radius: 8px; position: relative;
+    transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1), background 0.1s;
+    touch-action: none;
+  }
+  /* 점선 구분선 */
+  .item + .item::after {
+    content: ""; position: absolute; left: 8px; right: 8px; top: -1px;
+    border-top: 2px dotted var(--line);
+  }
+  .item:hover { background: var(--paper-2); }
+  .item.selected { background: var(--coral-soft); }
+  .item.selected::before {
+    content: ""; position: absolute; left: 0; top: 13px; bottom: 13px; width: 4px;
+    border-radius: 2px; background: var(--coral);
+  }
+  .item.dragging {
+    transition: none; z-index: 5; background: var(--paper);
+    outline: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--coral);
+    cursor: grabbing;
+  }
+  .item.dragging::after, .item.dragging + .item::after { display: none; }
+  .item.settling { transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1); z-index: 5; }
+  body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
+  body.is-dragging .item:not(.dragging):hover { background: none; }
+
+  .grip { width: 20px; height: 30px; display: grid; place-items: center; color: var(--ink-3); cursor: grab; flex: none; }
+  .num { width: 24px; text-align: right; color: var(--coral-deep); font-family: var(--mono); font-size: 12.5px; font-weight: 700; flex: none; }
+  .kind {
+    width: 40px; height: 26px; border-radius: 6px; flex: none;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    border: 2px solid var(--ink); background: var(--paper); color: var(--ink);
+  }
+  .kind.pdf { background: var(--ink); color: var(--coral); }
+  .names { flex: 1; min-width: 0; }
+  .name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { color: var(--ink-3); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .tools { display: flex; gap: 2px; opacity: 0; transition: opacity 0.1s; flex: none; }
+  .item:hover .tools, .item.selected .tools { opacity: 1; }
+  body.is-dragging .tools { opacity: 0 !important; }
+  .icon-btn {
+    appearance: none; border: 0; background: none; color: var(--ink-2);
+    width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; padding: 0;
+  }
+  .icon-btn:hover { background: var(--ink); color: var(--paper); }
+  .icon-btn.remove:hover { background: var(--coral); color: #fff; }
+  .icon-btn:disabled { opacity: 0.25; pointer-events: none; }
+
+  .empty { position: absolute; inset: 0; display: none; place-items: center; color: var(--ink-3); font-family: var(--mono); }
+  #list.is-empty .empty { display: grid; }
+
+  footer { display: flex; align-items: center; gap: 10px; padding: 16px 24px 18px 20px; }
+  .summary { flex: 1; min-width: 0; color: var(--ink-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .summary b { color: var(--ink); font-weight: 700; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><span class="prompt">합칠 순서</span><span class="cursor"></span></h1>
+    <p>위에서부터 차례로 한 PDF가 됩니다. 끌어서 순서를 바꾸세요.</p>
+  </div>
+  <button class="btn" id="sort" title="파일 이름 순서로 다시 정렬">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.5v11M4.5 13.5L2 11M4.5 13.5L7 11M9 4h5M9 8h3.5M9 12h2"/></svg>
+    이름순 정렬
+  </button>
+</header>
+
+<div class="list-wrap">
+  <div class="term-bar">
+    <i class="dot on"></i><i class="dot"></i><i class="dot"></i>
+    <span class="title" id="output-name">iko@event_code: ~/merge</span>
+    <span class="right" id="count"></span>
+  </div>
+  <div class="list-box">
+    <div id="list" tabindex="0">
+      <div class="empty">&gt; 합칠 파일이 없습니다</div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="summary" id="summary"></div>
+  <button class="btn large" id="cancel">취소</button>
+  <button class="btn primary large" id="ok">합치기</button>
+</footer>
+<div class="toast" id="toast"></div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const send = (message) => window.ipc.postMessage(JSON.stringify(message));
+  const list = $("list");
+  const ROW = 54;
+
+  /** @type {{id:number,name:string,dir:string,ext:string,size:string}[]} */
+  let items = [];
+  let selected = -1; // 고른 항목의 순서
+  let drag = null;
+
+  const icon = (path) =>
+    `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+  const GRIP = `<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="2.500" cy="3" r="1.3"/><circle cx="7.500" cy="3" r="1.3"/><circle cx="2.500" cy="8" r="1.3"/><circle cx="7.500" cy="8" r="1.3"/><circle cx="2.500" cy="13" r="1.3"/><circle cx="7.500" cy="13" r="1.3"/></svg>`;
+
+  function stem(name) {
+    const dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(0, dot) : name;
+  }
+  function naturalCompare(a, b) {
+    return a.name.localeCompare(b.name, "ko", { numeric: true, sensitivity: "base" }) ||
+      a.dir.localeCompare(b.dir, "ko", { numeric: true });
+  }
+
+  function render() {
+    list.querySelectorAll(".item").forEach((el) => el.remove());
+    list.classList.toggle("is-empty", items.length === 0);
+    if (selected >= items.length) selected = items.length - 1;
+
+    items.forEach((item, index) => {
+      const el = document.createElement("div");
+      el.className = "item" + (index === selected ? " selected" : "");
+      el.dataset.index = index;
+      const isPdf = item.ext.toLowerCase() === "pdf";
+      el.innerHTML =
+        `<div class="grip" title="끌어서 옮기기">${GRIP}</div>` +
+        `<div class="num">${index + 1}</div>` +
+        `<div class="kind${isPdf ? " pdf" : ""}"></div>` +
+        `<div class="names"><div class="name"></div><div class="meta"></div></div>` +
+        `<div class="tools">` +
+          `<button class="icon-btn" data-act="up" title="위로 (Alt+↑)"${index === 0 ? " disabled" : ""}>${icon('<path d="M8 12.5v-9M4 7l4-4 4 4"/>')}</button>` +
+          `<button class="icon-btn" data-act="down" title="아래로 (Alt+↓)"${index === items.length - 1 ? " disabled" : ""}>${icon('<path d="M8 3.500v9M4 9l4 4 4-4"/>')}</button>` +
+          `<button class="icon-btn remove" data-act="remove" title="목록에서 빼기 (Delete)">${icon('<path d="M4 4l8 8M12 4l-8 8"/>')}</button>` +
+        `</div>`;
+      el.querySelector(".kind").textContent = item.ext.toUpperCase().slice(0, 4);
+      el.querySelector(".name").textContent = item.name;
+      el.querySelector(".name").title = item.name;
+      el.querySelector(".meta").textContent = item.size ? `${item.size}  ·  ${item.dir}` : item.dir;
+      el.querySelector(".meta").title = item.dir;
+      list.append(el);
+    });
+
+    const summary = $("summary");
+    summary.textContent = "";
+    $("count").textContent = `${items.length} files`;
+    $("output-name").textContent = items.length ? `~/${stem(items[0].name)}_합본.pdf` : "iko@event_code: ~/merge";
+    if (items.length) {
+      const count = document.createElement("b");
+      count.textContent = `${items.length}개 파일`;
+      summary.append(count, " 을 한 PDF로 합칩니다");
+    }
+    $("ok").disabled = items.length === 0;
+    $("sort").disabled = items.length < 2;
+  }
+
+  function select(index, scroll) {
+    selected = index;
+    list.querySelectorAll(".item").forEach((el, i) => el.classList.toggle("selected", i === index));
+    if (scroll) list.querySelectorAll(".item")[index]?.scrollIntoView({ block: "nearest" });
+  }
+  function move(from, to) {
+    if (from < 0 || to < 0 || to >= items.length || from === to) return;
+    const [item] = items.splice(from, 1);
+    items.splice(to, 0, item);
+    selected = to;
+    render();
+    list.querySelectorAll(".item")[to]?.scrollIntoView({ block: "nearest" });
+  }
+  function remove(index) {
+    if (index < 0) return;
+    items.splice(index, 1);
+    selected = Math.min(index, items.length - 1);
+    render();
+  }
+
+  // ── 끌어서 옮기기 ──
+  list.addEventListener("pointerdown", (e) => {
+    const row = e.target.closest(".item");
+    if (!row || e.button !== 0) return;
+    const index = Number(row.dataset.index);
+    if (e.target.closest(".icon-btn")) return;
+    select(index, false);
+    drag = { row, from: index, target: index, startY: e.clientY, startScroll: list.scrollTop, active: false, pointerY: e.clientY, id: e.pointerId };
+    row.setPointerCapture(e.pointerId);
+  });
+
+  function updateDrag() {
+    if (!drag || !drag.active) return;
+    const dy = drag.pointerY - drag.startY + (list.scrollTop - drag.startScroll);
+    const max = (items.length - 1 - drag.from) * ROW;
+    const min = -drag.from * ROW;
+    const clamped = Math.max(min - 12, Math.min(max + 12, dy));
+    drag.row.style.transform = `translateY(${clamped}px) scale(1.01)`;
+    drag.target = Math.max(0, Math.min(items.length - 1, Math.round((drag.from * ROW + dy) / ROW)));
+    list.querySelectorAll(".item").forEach((el, i) => {
+      if (el === drag.row) return;
+      let shift = 0;
+      if (drag.from < drag.target && i > drag.from && i <= drag.target) shift = -ROW;
+      if (drag.from > drag.target && i >= drag.target && i < drag.from) shift = ROW;
+      el.style.transform = shift ? `translateY(${shift}px)` : "";
+    });
+  }
+
+  let scrollTimer = 0;
+  function autoScroll() {
+    cancelAnimationFrame(scrollTimer);
+    if (!drag || !drag.active) return;
+    const box = list.getBoundingClientRect();
+    const edge = 36;
+    let speed = 0;
+    if (drag.pointerY < box.top + edge) speed = -Math.ceil((box.top + edge - drag.pointerY) / 5);
+    if (drag.pointerY > box.bottom - edge) speed = Math.ceil((drag.pointerY - (box.bottom - edge)) / 5);
+    if (speed) {
+      list.scrollTop += Math.max(-14, Math.min(14, speed));
+      updateDrag();
+    }
+    scrollTimer = requestAnimationFrame(autoScroll);
+  }
+
+  list.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.pointerY = e.clientY;
+    if (!drag.active) {
+      if (Math.abs(e.clientY - drag.startY) < 4) return;
+      drag.active = true;
+      drag.row.classList.add("dragging");
+      document.body.classList.add("is-dragging");
+      autoScroll();
+    }
+    updateDrag();
+  });
+
+  function endDrag(commit) {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    cancelAnimationFrame(scrollTimer);
+    document.body.classList.remove("is-dragging");
+    if (!d.active) return;
+    const target = commit ? d.target : d.from;
+    // 제자리로 부드럽게 들어간 뒤 실제 순서를 바꾼다.
+    d.row.classList.remove("dragging");
+    d.row.classList.add("settling");
+    d.row.style.transform = `translateY(${(target - d.from) * ROW}px)`;
+    setTimeout(() => {
+      if (target !== d.from) {
+        const [item] = items.splice(d.from, 1);
+        items.splice(target, 0, item);
+      }
+      selected = target;
+      const top = list.scrollTop;
+      render();
+      list.scrollTop = top;
+    }, 170);
+  }
+  list.addEventListener("pointerup", (e) => { if (drag && e.pointerId === drag.id) endDrag(true); });
+  list.addEventListener("pointercancel", () => endDrag(false));
+
+  // ── 버튼 / 키보드 ──
+  list.addEventListener("click", (e) => {
+    const button = e.target.closest(".icon-btn");
+    if (!button) return;
+    const index = Number(button.closest(".item").dataset.index);
+    if (button.dataset.act === "up") move(index, index - 1);
+    if (button.dataset.act === "down") move(index, index + 1);
+    if (button.dataset.act === "remove") remove(index);
+  });
+  $("sort").onclick = () => { items.sort(naturalCompare); selected = Math.min(selected, items.length - 1); render(); };
+  $("cancel").onclick = () => send({ cmd: "cancel" });
+  $("ok").onclick = () => { if (items.length) send({ cmd: "ok", order: items.map((item) => item.id) }); };
+
+  document.addEventListener("keydown", (e) => {
+    if (drag && drag.active) { if (e.key === "Escape") endDrag(false); e.preventDefault(); return; }
+    const reorder = e.altKey || e.ctrlKey;
+    if (e.key === "ArrowUp") { reorder ? move(selected, selected - 1) : select(Math.max(0, selected - 1), true); e.preventDefault(); }
+    else if (e.key === "ArrowDown") { reorder ? move(selected, selected + 1) : select(Math.min(items.length - 1, selected + 1), true); e.preventDefault(); }
+    else if (e.key === "Home") { reorder ? move(selected, 0) : select(0, true); e.preventDefault(); }
+    else if (e.key === "End") { reorder ? move(selected, items.length - 1) : select(items.length - 1, true); e.preventDefault(); }
+    else if (e.key === "Delete") { remove(selected); e.preventDefault(); }
+    else if (e.key === "Enter" && !e.target.closest("button")) { $("ok").click(); e.preventDefault(); }
+    else if (e.key === "Escape") { send({ cmd: "cancel" }); }
+  });
+  document.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // ── 프로그램이 부르는 함수 ──
+  window.app = {
+    init(data) { items = data.items; selected = items.length ? 0 : -1; render(); list.focus(); },
+  };
+
+  // 브라우저에서 미리 볼 때 쓰는 가짜 프로그램
+  if (!window.ipc) {
+    const names = ["표지.jpg", "계약서 스캔_2.pdf", "계약서 스캔_10.pdf", "현장사진 (1).png", "현장사진 (2).png", "품질관리 계획서 최종 수정본 2026-11 검토 의견 반영.pdf", "준공도면.pdf", "영수증.jpeg"];
+    const count = Number(new URLSearchParams(location.search).get("n") || names.length);
+    window.ipc = { postMessage(raw) {
+      const m = JSON.parse(raw);
+      if (m.cmd === "ready") window.app.init({ items: Array.from({ length: count }, (_, i) => {
+        const name = names[i % names.length];
+        return { id: i, name, dir: "C:\\Users\\사용자\\Documents\\2026 현장 서류", ext: name.split(".").pop(), size: `${(0.3 + i * 0.7).toFixed(1)} MB` };
+      }) });
+      else { const t = $("toast"); t.textContent = raw; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2500); }
+    } };
+  }
+
+  render();
+  send({ cmd: "ready" });
+})();
+</script>
+</body>
+</html>

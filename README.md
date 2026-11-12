@@ -3,6 +3,8 @@
 탐색기에서 이미지나 PDF를 **우클릭**해서 바로 변환·나누기·합치기를 하는 Windows용 프로그램입니다.
 설치 프로그램 없이 실행 파일 하나(`ikoPDF.exe`)로 동작합니다.
 
+만든 곳: [event_code 블로그](https://blog.naver.com/event_code) — 일은 줄이고, 돈은 벌자!
+
 ## 받기
 
 **[최신 버전 내려받기 (ikoPDF.exe)](https://github.com/PortPapa/ikoPDF/releases/latest/download/ikoPDF.exe)**
@@ -45,15 +47,17 @@
 
 ## 직접 빌드하기
 
-Rust(MSVC)와 Windows SDK가 필요합니다.
+Rust(MSVC)와 Windows SDK가 필요합니다. 아이콘은 `scripts\make-assets.ps1` 이 만듭니다(메뉴 아이콘, 이코 캐릭터 프로그램 아이콘).
 
 ```powershell
 cargo test -p ikopdf                                                   # 변환 테스트
 powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -SkipPublish   # target\release\ikoPDF.exe 만들기
 ```
 
-- `crates/converter` — `ikoPDF.exe`. 변환(`img2pdf`, `pdf2img`, `pdfops`), 창(`settings_dialog`, `order_dialog`),
-  자체 설치·메뉴 등록(`setup`), 업데이트(`update`).
+- `crates/converter` — `ikoPDF.exe`. 변환(`img2pdf`, `pdf2img`, `pdfops`), 자체 설치·메뉴 등록(`setup`), 업데이트(`update`).
+  - 화면은 `ui/*.html` (event_code 블로그 스타일)이고 Windows에 들어 있는 WebView2로 보여 줍니다(`webui`, `settings_web`, `order_web`).
+    `ui` 폴더를 `python -m http.server` 로 열면 브라우저에서 바로 미리 볼 수 있습니다.
+  - WebView2를 쓸 수 없는 PC에서는 기본 Windows 창(`settings_dialog`, `order_dialog`)이 대신 뜹니다.
 - `crates/shell-ext` — `ikopdf_shell.dll`. 우클릭 메뉴(`IExplorerCommand`). 고른 파일 목록을 exe에 넘기기만 합니다.
   exe 안에 함께 들어가므로 **DLL을 먼저 빌드**해야 합니다(`release.ps1` 이 순서대로 빌드).
 - `package/AppxManifest.xml` — 새 메뉴용 패키지 선언. 바꾸면 Version을 올리고 `scripts\make-package.ps1` 로

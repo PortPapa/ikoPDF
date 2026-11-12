@@ -17,6 +17,11 @@ pub fn scale(value: i32, dpi: u32) -> i32 {
     (value as i64 * dpi as i64 / 96) as i32
 }
 
+/// 실행 파일에 들어 있는 프로그램 아이콘 (build.rs 가 넣는다). 없으면 기본 아이콘.
+pub unsafe fn app_icon(instance: HINSTANCE) -> HICON {
+    LoadIconW(Some(instance), PCWSTR(1 as *const u16)).unwrap_or_default()
+}
+
 pub fn system_dpi() -> u32 {
     unsafe { GetDpiForSystem() }.max(96)
 }

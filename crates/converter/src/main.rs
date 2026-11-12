@@ -19,9 +19,12 @@
 #![allow(non_snake_case)]
 
 mod order_dialog;
+mod order_web;
 mod settings_dialog;
+mod settings_web;
 mod setup;
 mod update;
+mod webui;
 mod win;
 
 use std::io::Read;
@@ -171,7 +174,12 @@ fn convert(args: ConvertArgs) -> i32 {
     let mut inputs = job::prepare_inputs(args.mode, args.paths);
     if args.mode == Mode::Merge && !args.no_ui && !inputs.is_empty() {
         let title = format!("{APP_NAME} - 합칠 순서");
-        match order_dialog::choose_order(&title, inputs) {
+        // 새 화면(WebView2)을 쓸 수 없는 PC에서는 기존 창으로 대신한다.
+        let chosen = match order_web::choose_order(&title, &inputs) {
+            Ok(chosen) => chosen,
+            Err(_) => order_dialog::choose_order(&title, inputs),
+        };
+        match chosen {
             Some(ordered) => inputs = ordered,
             None => return 0, // 취소
         }
@@ -230,6 +238,23 @@ fn convert(args: ConvertArgs) -> i32 {
     1
 }
 
+/// 프로세스를 그 자리에서 끝낸다.
+///
+/// 보통의 종료(`std::process::exit`)는 불러 둔 DLL들의 뒷정리를 거치는데, PDF를 이미지로
+/// 그린 뒤에는(Windows 내장 PDF 렌더러) 그 뒷정리가 끝나지 않고 CPU만 쓰며 멈추는 일이 있었다.
+/// 이 시점에는 결과 파일을 모두 쓰고 닫았으므로 뒷정리 없이 끝내도 잃는 것이 없다.
+fn exit_now(code: i32) -> ! {
+    use std::io::Write;
+    let _ = std::io::stderr().flush();
+    unsafe {
+        let _ = windows::Win32::System::Threading::TerminateProcess(
+            windows::Win32::System::Threading::GetCurrentProcess(),
+            code as u32,
+        );
+    }
+    std::process::exit(code)
+}
+
 /// 명령줄 관리 명령의 결과를 표준 오류와 종료 코드로 알린다.
 fn report(result: anyhow::Result<String>) -> i32 {
     match result {
@@ -255,7 +280,9 @@ fn main() {
 
     let code = match first.as_deref() {
         None => {
-            settings_dialog::show();
+            if settings_web::show().is_err() {
+                settings_dialog::show();
+            }
             0
         }
         Some("--startup-update") => {
@@ -286,5 +313,5 @@ fn main() {
             }
         },
     };
-    std::process::exit(code);
+    exit_now(code);
 }

@@ -28,6 +28,10 @@ pub fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+pub fn repository_page() -> String {
+    format!("https://github.com/{REPOSITORY}")
+}
+
 pub fn releases_page() -> String {
     format!("https://github.com/{REPOSITORY}/releases/latest")
 }

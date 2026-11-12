@@ -69,6 +69,14 @@ pub fn install_dir() -> PathBuf {
     base.join("Programs").join("ikoPDF")
 }
 
+/// 화면(WebView2) 캐시 등 프로그램이 쓰는 데이터 폴더.
+pub fn data_dir() -> PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("ikoPDF")
+}
+
 pub fn installed_exe() -> PathBuf {
     install_dir().join(EXE_NAME)
 }
@@ -440,29 +448,32 @@ pub fn unregister_menu() -> Result<()> {
     removed.context("패키지를 해제하지 못했습니다")
 }
 
-/// 설치 폴더를 지운다. 사용 중인 파일(지금 실행 중인 exe, 탐색기가 잡고 있는 DLL)이 있으면
-/// 프로그램이 끝난 뒤 다시 한번 지우도록 예약한다.
+/// 설치 폴더와 데이터 폴더를 지운다. 사용 중인 파일(지금 실행 중인 exe, 탐색기가 잡고 있는
+/// DLL, 열려 있는 설정 창의 화면 캐시)이 있으면 프로그램이 끝난 뒤 다시 한번 지우도록 예약한다.
 fn remove_install_dir() {
-    let dir = install_dir();
-    if !running_from_install_dir() && std::fs::remove_dir_all(&dir).is_ok() {
-        return;
+    let targets = [install_dir(), data_dir()];
+    if !running_from_install_dir() {
+        for dir in &targets {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
-    if !dir.exists() {
+    let remaining: Vec<String> = targets
+        .iter()
+        .filter(|dir| dir.exists())
+        .map(|dir| format!("rmdir /s /q \"{}\"", dir.to_string_lossy()))
+        .collect();
+    if remaining.is_empty() {
         return;
     }
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let script = format!(
-        "ping -n 8 127.0.0.1 >nul & rmdir /s /q \"{}\"",
-        dir.to_string_lossy()
-    );
+    let script = format!("ping -n 8 127.0.0.1 >nul & {}", remaining.join(" & "));
     let _ = std::process::Command::new("cmd.exe")
         .raw_arg(format!("/c {script}"))
         .current_dir(std::env::temp_dir())
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 }
-
 /// 새 버전의 실행 파일(자신)을 설치 폴더에 반영하고, 필요하면 메뉴 등록을 갱신한다.
 pub fn apply_update() -> Result<()> {
     let before = menu_state();
