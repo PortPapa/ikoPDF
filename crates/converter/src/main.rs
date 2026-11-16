@@ -11,6 +11,8 @@
 //!
 //! 관리용:
 //!   ikoPDF.exe --register [--classic]   우클릭 메뉴 등록 (--classic: 기존 메뉴로만)
+//!   ikoPDF.exe --trust-certificate      (관리자 권한) 새 메뉴용 인증서를 이 PC에 등록
+//!   ikoPDF.exe --untrust-certificate    (관리자 권한) 그 인증서를 삭제
 //!   ikoPDF.exe --unregister             우클릭 메뉴 해제
 //!   ikoPDF.exe --background-update      (작업 뒤 하루 한 번) 조용히 새 버전 확인·설치
 //!   ikoPDF.exe --apply-update           (업데이트 과정에서) 자신을 설치 폴더에 반영
@@ -291,7 +293,14 @@ fn main() {
             0
         }
         Some("--apply-update") => report(setup::apply_update().map(|()| "updated".to_string())),
-        Some("--register") => report(setup::register_menu(!has_flag("--classic")).map(|registration| {
+        // 관리자 권한으로 다시 실행된 자신이 하는 일. 인증서 한 장을 넣거나 빼는 것뿐이다.
+        Some("--trust-certificate") => {
+            report(setup::trust_machine_certificate().map(|()| "trusted".to_string()))
+        }
+        Some("--untrust-certificate") => {
+            report(setup::untrust_machine_certificate().map(|()| "untrusted".to_string()))
+        }
+        Some("--register") => report(setup::register_menu(!has_flag("--classic"), true).map(|registration| {
             match registration.fallback_reason {
                 Some(reason) => format!("registered: {:?} (fallback: {reason})", registration.state),
                 None => format!("registered: {:?}", registration.state),

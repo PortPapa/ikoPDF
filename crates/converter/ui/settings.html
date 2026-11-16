@@ -28,6 +28,9 @@
 
   .menu-body { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
   .menu-body p { flex: 1; color: var(--ink-2); font-size: 13.5px; }
+  #upgrade-btn { display: block; margin-top: 6px; color: var(--coral-deep); }
+  #upgrade-btn[hidden] { display: none; }
+  #upgrade-btn:disabled { opacity: 0.45; pointer-events: none; }
   .note {
     margin-top: 10px; padding-top: 8px; border-top: 2px dotted var(--line);
     color: var(--ink-3); font-size: 12px; line-height: 1.5;
@@ -97,7 +100,8 @@
       <p id="menu-desc">&nbsp;</p>
       <button class="btn primary large" id="menu-btn" disabled>우클릭 메뉴 등록</button>
     </div>
-    <p class="note">등록하면 프로그램이 내 계정 폴더로 복사되고, 새 우클릭 메뉴에 표시하기 위한 인증서가 내 Windows 계정에 추가됩니다. 해제하면 모두 지워집니다. 관리자 권한은 쓰지 않습니다.</p>
+    <button class="link" id="upgrade-btn" hidden>메뉴 첫 화면에 올리기 (관리자 승인 필요)</button>
+    <p class="note" id="menu-note">등록할 때 Windows가 관리자 승인을 한 번 묻습니다. 우클릭 첫 화면에 올리는 데 필요한 인증서를 이 PC에 등록하기 위해서이고, 거절하면 “추가 옵션 표시” 안에 등록됩니다. 해제하면 모두 지워집니다.</p>
   </section>
 
   <section class="card">
@@ -215,7 +219,7 @@
     const badge = $("menu-badge");
     const texts = {
       modern: ["등록됨", "ok", "이미지나 PDF를 우클릭하면 메뉴 첫 화면에 바로 나옵니다."],
-      classic: ["등록됨 · 추가 옵션 안", "warn", "이 PC에서는 우클릭 → “추가 옵션 표시” 안에 나옵니다."],
+      classic: ["등록됨 · 추가 옵션 안", "warn", "지금은 우클릭 → 맨 아래 “추가 옵션 표시”를 눌러야 나옵니다."],
       none: ["등록 안 됨", "", "버튼을 누르면 우클릭 메뉴에 “iko PDF 변환”이 추가됩니다."],
     }[state.menu];
     badge.textContent = texts[0];
@@ -228,6 +232,12 @@
     if (busy === "register") setButton(menuBtn, "등록하는 중…", true);
     else if (busy === "unregister") setButton(menuBtn, "해제하는 중…", true);
     else setButton(menuBtn, registered ? "메뉴 해제" : "우클릭 메뉴 등록", false);
+
+    const upgrade = $("upgrade-btn");
+    upgrade.hidden = state.menu !== "classic";
+    upgrade.disabled = !!busy;
+    // 기존 메뉴 상태에서는 위 링크가 같은 안내를 하므로 아래 설명을 접어 창 높이를 맞춘다.
+    $("menu-note").hidden = state.menu === "classic";
 
     const auto = $("auto");
     auto.checked = registered && state.autoUpdate;
@@ -262,12 +272,20 @@
     } else {
       const yes = await confirmSheet(
         "우클릭 메뉴를 해제할까요?",
-        "메뉴, 인증서, 자동 업데이트 설정과 설치된 프로그램 파일이 모두 지워집니다.",
+        state.menu === "modern"
+          ? "메뉴, 인증서, 설정과 설치된 프로그램 파일이 모두 지워집니다. 인증서를 지우려고 Windows가 관리자 승인을 한 번 묻습니다."
+          : "메뉴, 설정과 설치된 프로그램 파일이 모두 지워집니다.",
         "해제", true);
       if (!yes) return;
       busy = "unregister"; render();
       send({ cmd: "unregister" });
     }
+  };
+  // 기존 메뉴로 등록된 상태에서 새 메뉴로 다시 등록한다(관리자 승인 창이 뜬다).
+  $("upgrade-btn").onclick = () => {
+    if (busy) return;
+    busy = "register"; render();
+    send({ cmd: "register" });
   };
   $("auto").onchange = (e) => send({ cmd: "autoupdate", value: e.target.checked });
   $("update-btn").onclick = () => {
@@ -297,8 +315,8 @@
       busy = null;
       if (cmd === "register") {
         if (!result.ok) toast("등록하지 못했습니다.\n" + result.message, true);
-        else if (result.fallback) toast("새 메뉴에는 올릴 수 없어 “추가 옵션 표시” 안에 등록했습니다.\n(" + result.fallback + ")");
-        else toast("등록했습니다. 이미지나 PDF를 우클릭해 보세요.");
+        else if (result.fallback) toast("메뉴 첫 화면에는 올리지 못해 “추가 옵션 표시” 안에 등록했습니다.\n(" + result.fallback + ")", true);
+        else toast("등록했습니다. 이미지나 PDF를 우클릭하면 첫 화면에 나옵니다.");
       } else if (cmd === "unregister") {
         if (result.ok) toast("우클릭 메뉴를 해제했습니다.");
         else toast("일부를 해제하지 못했습니다.\n" + result.message, true);
@@ -332,7 +350,7 @@
     window.ipc = { postMessage(raw) {
       const m = JSON.parse(raw);
       if (m.cmd === "ready") window.app.state({ ...fake });
-      if (m.cmd === "register") reply(() => { fake.menu = location.hash === "#classic" ? "classic" : "modern"; fake.installedVersion = fake.version; window.app.state({ ...fake }); window.app.done("register", { ok: true, fallback: fake.menu === "classic" ? "정책으로 차단됨 (0x80073CFF)" : null }); }, 900);
+      if (m.cmd === "register") reply(() => { fake.menu = location.hash === "#classic" ? "classic" : "modern"; fake.installedVersion = fake.version; window.app.state({ ...fake }); window.app.done("register", { ok: true, fallback: fake.menu === "classic" ? "관리자 승인을 받지 못했습니다" : null }); }, 900);
       if (m.cmd === "unregister") reply(() => { fake.menu = "none"; fake.autoUpdate = true; fake.installedVersion = null; window.app.state({ ...fake }); window.app.done("unregister", { ok: true }); }, 700);
       if (m.cmd === "autoupdate") { fake.autoUpdate = m.value; window.app.state({ ...fake }); }
       if (m.cmd === "check") reply(() => window.app.done("check", { ok: true, latest: "1.2.0", newer: true, canInstall: fake.menu !== "none" }), 900);

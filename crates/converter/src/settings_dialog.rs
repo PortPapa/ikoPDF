@@ -84,7 +84,7 @@ unsafe fn refresh(window: HWND) {
 
 unsafe fn on_toggle(window: HWND) {
     if setup::menu_state() == MenuState::NotRegistered {
-        match busy(window, || setup::register_menu(true)) {
+        match busy(window, || setup::register_menu(true, true)) {
             Ok(registration) => {
                 refresh(window);
                 let message = match (registration.state, registration.fallback_reason) {

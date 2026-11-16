@@ -54,7 +54,7 @@ fn handle(host: &Host, message: Value) {
     match message["cmd"].as_str().unwrap_or_default() {
         "ready" => host.call("state", &state()),
         "register" => host.spawn(|| {
-            let result = match setup::register_menu(true) {
+            let result = match setup::register_menu(true, true) {
                 Ok(registration) => json!({ "ok": true, "fallback": registration.fallback_reason }),
                 Err(error) => failure(&error),
             };

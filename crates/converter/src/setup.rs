@@ -2,11 +2,13 @@
 //!
 //! 실행 파일 하나에 메뉴 DLL·패키지·인증서가 들어 있다. "메뉴 등록"을 하면
 //! `%LOCALAPPDATA%\Programs\ikoPDF` 에 자신을 복사하고(메뉴가 가리킬 고정 위치),
-//! 다음 순서로 메뉴를 등록한다. 관리자 권한은 쓰지 않는다.
+//! 다음 순서로 메뉴를 등록한다.
 //!
-//! 1. **새 메뉴** (Windows 11 우클릭 첫 화면): 서명된 패키지를 등록한다. 패키지 서명을
-//!    믿도록 공개 인증서를 *현재 사용자*의 "신뢰할 수 있는 사용자" 저장소에 넣는다.
-//! 2. 1이 막히면 **기존 메뉴** ("추가 옵션 표시" 안): 현재 사용자 레지스트리에만 등록한다.
+//! 1. **새 메뉴** (Windows 11 우클릭 첫 화면): 서명된 패키지를 등록한다. Windows가 패키지 서명을
+//!    믿도록 공개 인증서를 *이 PC*의 "신뢰할 수 있는 사용자" 저장소에 넣어야 하고, 이 한 가지에만
+//!    관리자 승인(UAC)을 받는다.
+//! 2. 승인을 받지 못했거나 1이 막히면 **기존 메뉴** ("추가 옵션 표시" 안): 관리자 권한 없이
+//!    현재 사용자 레지스트리에만 등록한다.
 //!
 //! "메뉴 해제"는 위에서 한 일을 모두 되돌린다(패키지, 인증서, 레지스트리, 설정, 폴더).
 
@@ -21,8 +23,9 @@ use windows::Management::Deployment::{AddPackageOptions, PackageManager};
 use windows::Win32::Security::Cryptography::{
     CertAddEncodedCertificateToStore, CertCloseStore, CertCreateCertificateContext,
     CertDeleteCertificateFromStore, CertFindCertificateInStore, CertFreeCertificateContext,
-    CertOpenStore, CERT_FIND_EXISTING, CERT_OPEN_STORE_FLAGS, CERT_QUERY_ENCODING_TYPE,
-    CERT_STORE_ADD_REPLACE_EXISTING, CERT_STORE_PROV_SYSTEM_W, CERT_SYSTEM_STORE_CURRENT_USER,
+    CertOpenStore, CERT_CONTEXT, CERT_FIND_EXISTING, CERT_OPEN_STORE_FLAGS,
+    CERT_QUERY_ENCODING_TYPE, CERT_STORE_ADD_REPLACE_EXISTING, CERT_STORE_PROV_SYSTEM_W,
+    CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER, CERT_SYSTEM_STORE_LOCAL_MACHINE,
     HCERTSTORE, X509_ASN_ENCODING,
 };
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
@@ -171,22 +174,97 @@ fn install_files() -> Result<()> {
 
 // ───────────────────────── 인증서 ─────────────────────────
 
+//
+// Windows는 패키지 서명 인증서가 **이 PC 전체**("로컬 컴퓨터")의 "신뢰할 수 있는 사용자"
+// 저장소에 있어야 패키지를 받아 준다. 거기에 쓰려면 관리자 권한이 필요하므로, 그 일만 하는
+// 자신(`--trust-certificate`)을 관리자 권한으로 실행한다(Windows가 승인을 한 번 묻는다).
+//
+// 1.1.1 까지는 현재 사용자의 저장소에 넣었는데, Windows가 그것만으로는 인정하지 않아
+// 새 메뉴 등록이 늘 0x800B0109 로 실패하고 기존 메뉴로 넘어갔다.
+
+#[derive(Clone, Copy)]
+enum Scope {
+    /// 현재 사용자 (예전 버전이 쓰던 곳 — 지금은 지우기만 한다).
+    User,
+    /// 이 PC 전체. 쓰려면 관리자 권한이 필요하다.
+    Machine,
+}
+
+/// "신뢰할 수 있는 사용자" 인증서 저장소.
 struct CertStore(HCERTSTORE);
 
 impl CertStore {
-    /// 현재 사용자의 "신뢰할 수 있는 사용자" 저장소.
-    fn trusted_people() -> Result<CertStore> {
+    fn trusted_people(scope: Scope, writable: bool) -> Result<CertStore> {
+        let mut flags = match scope {
+            Scope::User => CERT_SYSTEM_STORE_CURRENT_USER,
+            Scope::Machine => CERT_SYSTEM_STORE_LOCAL_MACHINE,
+        };
+        if !writable {
+            flags |= CERT_STORE_READONLY_FLAG.0;
+        }
         let store = unsafe {
             CertOpenStore(
                 CERT_STORE_PROV_SYSTEM_W,
                 CERT_QUERY_ENCODING_TYPE(0),
                 None,
-                CERT_OPEN_STORE_FLAGS(CERT_SYSTEM_STORE_CURRENT_USER),
+                CERT_OPEN_STORE_FLAGS(flags),
                 Some(w!("TrustedPeople").as_ptr() as *const c_void),
             )
         }
         .map_err(|e| anyhow!("인증서 저장소를 열 수 없습니다: {}", e.message()))?;
         Ok(CertStore(store))
+    }
+
+    /// 저장소에 들어 있는 우리 인증서 (없으면 null). 받은 쪽이 해제하거나 삭제해야 한다.
+    unsafe fn find(&self) -> *mut CERT_CONTEXT {
+        let ours = CertCreateCertificateContext(X509_ASN_ENCODING, PACKAGE_CERT);
+        if ours.is_null() {
+            return std::ptr::null_mut();
+        }
+        let found = CertFindCertificateInStore(
+            self.0,
+            X509_ASN_ENCODING,
+            0,
+            CERT_FIND_EXISTING,
+            Some(ours as *const c_void),
+            None,
+        );
+        let _ = CertFreeCertificateContext(Some(ours));
+        found
+    }
+
+    fn contains(&self) -> bool {
+        unsafe {
+            let found = self.find();
+            if found.is_null() {
+                return false;
+            }
+            let _ = CertFreeCertificateContext(Some(found));
+            true
+        }
+    }
+
+    fn add(&self) -> Result<()> {
+        unsafe {
+            CertAddEncodedCertificateToStore(
+                Some(self.0),
+                X509_ASN_ENCODING,
+                PACKAGE_CERT,
+                CERT_STORE_ADD_REPLACE_EXISTING,
+                None,
+            )
+        }
+        .map_err(|e| anyhow!("인증서를 추가할 수 없습니다: {}", e.message()))
+    }
+
+    fn remove(&self) {
+        unsafe {
+            let found = self.find();
+            if !found.is_null() {
+                // 삭제하면 찾은 핸들도 함께 해제된다.
+                let _ = CertDeleteCertificateFromStore(found);
+            }
+        }
     }
 }
 
@@ -198,44 +276,103 @@ impl Drop for CertStore {
     }
 }
 
-fn trust_certificate() -> Result<()> {
-    let store = CertStore::trusted_people()?;
-    unsafe {
-        CertAddEncodedCertificateToStore(
-            Some(store.0),
-            X509_ASN_ENCODING,
-            PACKAGE_CERT,
-            CERT_STORE_ADD_REPLACE_EXISTING,
-            None,
-        )
-    }
-    .map_err(|e| anyhow!("인증서를 추가할 수 없습니다: {}", e.message()))
+fn machine_certificate_trusted() -> bool {
+    !PACKAGE_CERT.is_empty()
+        && CertStore::trusted_people(Scope::Machine, false)
+            .map(|store| store.contains())
+            .unwrap_or(false)
 }
 
-fn untrust_certificate() {
+/// (관리자 권한으로 실행된 `--trust-certificate`) 인증서를 이 PC의 신뢰 저장소에 넣는다.
+pub fn trust_machine_certificate() -> Result<()> {
+    if PACKAGE_CERT.is_empty() {
+        bail!("이 실행 파일에는 인증서가 들어 있지 않습니다");
+    }
+    CertStore::trusted_people(Scope::Machine, true)?.add()
+}
+
+/// (관리자 권한으로 실행된 `--untrust-certificate`) 넣어 둔 인증서를 지운다.
+pub fn untrust_machine_certificate() -> Result<()> {
+    let store = CertStore::trusted_people(Scope::Machine, true)?;
+    store.remove();
+    if store.contains() {
+        bail!("인증서를 지울 수 없습니다");
+    }
+    Ok(())
+}
+
+/// 예전 버전이 현재 사용자 저장소에 넣어 둔 인증서가 있으면 지운다.
+fn remove_user_certificate() {
     if PACKAGE_CERT.is_empty() {
         return;
     }
-    let Ok(store) = CertStore::trusted_people() else { return };
-    unsafe {
-        let ours = CertCreateCertificateContext(X509_ASN_ENCODING, PACKAGE_CERT);
-        if ours.is_null() {
-            return;
+    let present = CertStore::trusted_people(Scope::User, false)
+        .map(|store| store.contains())
+        .unwrap_or(false);
+    if present {
+        if let Ok(store) = CertStore::trusted_people(Scope::User, true) {
+            store.remove();
         }
-        let found = CertFindCertificateInStore(
-            store.0,
-            X509_ASN_ENCODING,
-            0,
-            CERT_FIND_EXISTING,
-            Some(ours as *const c_void),
-            None,
-        );
-        if !found.is_null() {
-            // 삭제하면 찾은 핸들도 함께 해제된다.
-            let _ = CertDeleteCertificateFromStore(found);
-        }
-        let _ = CertFreeCertificateContext(Some(ours));
     }
+}
+
+/// 자신을 관리자 권한으로 실행하고 끝나기를 기다린다. Windows가 사용자에게 승인을 묻는다.
+fn run_elevated(argument: &str) -> Result<()> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED};
+    use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
+    use windows::Win32::UI::Shell::{
+        ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    let exe = std::env::current_exe().context("실행 파일 위치를 알 수 없습니다")?;
+    let exe = HSTRING::from(exe.as_os_str());
+    let argument = HSTRING::from(argument);
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC,
+        lpVerb: w!("runas"),
+        lpFile: PCWSTR(exe.as_ptr()),
+        lpParameters: PCWSTR(argument.as_ptr()),
+        nShow: SW_HIDE.0,
+        ..Default::default()
+    };
+    unsafe {
+        if let Err(error) = ShellExecuteExW(&mut info) {
+            if error.code() == ERROR_CANCELLED.to_hresult() {
+                bail!("관리자 승인을 받지 못했습니다");
+            }
+            bail!("관리자 권한으로 실행할 수 없습니다: {}", error.message());
+        }
+        if info.hProcess.is_invalid() {
+            bail!("관리자 권한으로 실행할 수 없습니다");
+        }
+        WaitForSingleObject(info.hProcess, 60_000);
+        let mut code = 1u32;
+        let _ = GetExitCodeProcess(info.hProcess, &mut code);
+        let _ = CloseHandle(info.hProcess);
+        if code != 0 {
+            bail!("관리자 권한 작업이 실패했습니다 (코드 {code})");
+        }
+    }
+    Ok(())
+}
+
+/// 패키지 서명 인증서가 이 PC에서 신뢰되도록 한다. 아직 아니면 관리자 승인을 받아 등록하는데,
+/// `interactive` 가 거짓이면(창 없이 도는 자동 업데이트) 승인 창을 띄우지 않고 실패한다.
+fn ensure_certificate_trusted(interactive: bool) -> Result<()> {
+    if machine_certificate_trusted() {
+        return Ok(());
+    }
+    if !interactive {
+        bail!("인증서가 이 PC에 등록되어 있지 않습니다");
+    }
+    run_elevated("--trust-certificate")?;
+    if !machine_certificate_trusted() {
+        bail!("인증서가 등록되지 않았습니다 (보안 프로그램이 막았을 수 있습니다)");
+    }
+    Ok(())
 }
 
 // ───────────────────────── 새 메뉴 (패키지) ─────────────────────────
@@ -309,11 +446,11 @@ fn remove_packages() -> Result<()> {
     })
 }
 
-fn register_package() -> Result<()> {
+fn register_package(interactive: bool) -> Result<()> {
     if PACKAGE_MSIX.is_empty() || PACKAGE_CERT.is_empty() {
         bail!("이 실행 파일에는 메뉴 패키지가 들어 있지 않습니다");
     }
-    trust_certificate()?;
+    ensure_certificate_trusted(interactive)?;
 
     let dir = install_dir();
     let msix = dir.join("ikoPDF.msix");
@@ -340,9 +477,6 @@ fn register_package() -> Result<()> {
     });
 
     let _ = std::fs::remove_file(&msix);
-    if result.is_err() {
-        untrust_certificate();
-    }
     result
 }
 
@@ -414,12 +548,14 @@ pub struct Registration {
 }
 
 /// 메뉴를 등록한다. `prefer_modern` 이 거짓이면 기존 메뉴로만 등록한다.
-pub fn register_menu(prefer_modern: bool) -> Result<Registration> {
+/// `interactive` 가 참이면 새 메뉴에 필요한 관리자 승인 창을 띄울 수 있다.
+pub fn register_menu(prefer_modern: bool, interactive: bool) -> Result<Registration> {
     install_files()?;
     remove_legacy_autostart();
+    remove_user_certificate();
 
     let modern = if prefer_modern {
-        register_package()
+        register_package(interactive)
     } else {
         Err(anyhow!("기존 메뉴로 등록하도록 지정했습니다"))
     };
@@ -446,13 +582,21 @@ pub fn register_menu(prefer_modern: bool) -> Result<Registration> {
 
 pub fn unregister_menu() -> Result<()> {
     let removed = remove_packages();
-    untrust_certificate();
+    remove_user_certificate();
+    // 이 PC에 등록해 둔 인증서는 관리자 권한으로만 지울 수 있다(승인 창이 한 번 뜬다).
+    let certificate = if machine_certificate_trusted() {
+        run_elevated("--untrust-certificate")
+            .context("메뉴는 해제했지만, 이 PC에 등록한 인증서는 지우지 못했습니다")
+    } else {
+        Ok(())
+    };
     remove_classic();
     remove_legacy_autostart();
     let _ = CURRENT_USER.remove_tree(SETTINGS_KEY);
     notify_shell();
     remove_install_dir();
-    removed.context("패키지를 해제하지 못했습니다")
+    removed.context("패키지를 해제하지 못했습니다")?;
+    certificate
 }
 
 /// 설치 폴더와 데이터 폴더를 지운다. 사용 중인 파일(지금 실행 중인 exe, 탐색기가 잡고 있는
@@ -490,7 +634,7 @@ pub fn apply_update() -> Result<()> {
         MenuState::Modern => {
             // 패키지 내용(메뉴가 뜨는 파일 종류 등)이 바뀐 버전이면 다시 등록한다.
             if package_registered().as_deref() != Some(PACKAGE_VERSION) {
-                register_menu(true)?;
+                register_menu(true, false)?;
             }
         }
         MenuState::Classic => {
