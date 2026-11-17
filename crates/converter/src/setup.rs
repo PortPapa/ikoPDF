@@ -531,7 +531,16 @@ fn notify_shell() {
 
 // ───────────────────────── 등록 / 해제 ─────────────────────────
 
+/// 메뉴가 실제로 쓰는 파일(실행 파일, 메뉴 DLL)이 설치 폴더에 있는지.
+fn files_installed() -> bool {
+    installed_exe().is_file() && install_dir().join(DLL_NAME).is_file()
+}
+
 pub fn menu_state() -> MenuState {
+    // 등록 정보만 남고 파일이 없으면 메뉴가 뜨지 않는다. 다시 등록할 수 있게 "등록 안 됨"으로 본다.
+    if !files_installed() {
+        return MenuState::NotRegistered;
+    }
     if package_registered().is_some() {
         MenuState::Modern
     } else if classic_registered() {
@@ -550,6 +559,8 @@ pub struct Registration {
 /// 메뉴를 등록한다. `prefer_modern` 이 거짓이면 기존 메뉴로만 등록한다.
 /// `interactive` 가 참이면 새 메뉴에 필요한 관리자 승인 창을 띄울 수 있다.
 pub fn register_menu(prefer_modern: bool, interactive: bool) -> Result<Registration> {
+    // 방금 해제하면서 예약해 둔 "폴더 지우기"가 있으면 취소한다.
+    let _ = std::fs::remove_file(removal_marker());
     install_files()?;
     remove_legacy_autostart();
     remove_user_certificate();
@@ -576,6 +587,9 @@ pub fn register_menu(prefer_modern: bool, interactive: bool) -> Result<Registrat
             }
         }
     };
+    // 관리자 승인을 기다리는 사이에 파일이 지워졌더라도(예약된 삭제가 취소 직전에 돈 경우)
+    // 메뉴가 빈 폴더를 가리키지 않도록 다시 확인해서 채운다.
+    install_files()?;
     notify_shell();
     Ok(registration)
 }
@@ -599,8 +613,16 @@ pub fn unregister_menu() -> Result<()> {
     certificate
 }
 
+/// 예약해 둔 "폴더 지우기"가 아직 유효하다는 표시. 다시 등록하면 지워서 예약을 취소한다.
+fn removal_marker() -> PathBuf {
+    std::env::temp_dir().join("ikoPDF-remove.pending")
+}
+
 /// 설치 폴더와 데이터 폴더를 지운다. 사용 중인 파일(지금 실행 중인 exe, 탐색기가 잡고 있는
 /// DLL, 열려 있는 설정 창의 화면 캐시)이 있으면 프로그램이 끝난 뒤 다시 한번 지우도록 예약한다.
+///
+/// 예약된 삭제는 몇 초 뒤에 돈다. 그 사이에 사용자가 다시 등록하면 새로 설치한 파일을
+/// 지워 버리므로(1.1.2 시험판에서 실제로 일어남), 표시 파일이 남아 있을 때만 지우게 한다.
 fn remove_install_dir() {
     let targets = [install_dir(), data_dir()];
     if !running_from_install_dir() {
@@ -618,7 +640,17 @@ fn remove_install_dir() {
     }
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let script = format!("ping -n 8 127.0.0.1 >nul & {}", remaining.join(" & "));
+    let marker = removal_marker();
+    if std::fs::write(&marker, b"").is_err() {
+        // 취소할 방법이 없으면 예약하지 않는다(남은 파일은 다음 등록·해제 때 정리된다).
+        return;
+    }
+    let marker = marker.to_string_lossy().into_owned();
+    // cmd 에서는 `if 조건 A & B` 의 B 도 조건 안에 들어간다.
+    let script = format!(
+        "ping -n 8 127.0.0.1 >nul & if exist \"{marker}\" {} & del /q \"{marker}\"",
+        remaining.join(" & ")
+    );
     let _ = std::process::Command::new("cmd.exe")
         .raw_arg(format!("/c {script}"))
         .current_dir(std::env::temp_dir())
